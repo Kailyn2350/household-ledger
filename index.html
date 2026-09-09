@@ -133,7 +133,7 @@
   .undated{font-size:11px;color:var(--amber)}
   .addbtn{width:100%;margin-top:10px;background:var(--bg2);border:1px dashed var(--line2);color:var(--muted);font-size:12.5px;padding:10px;border-radius:10px}
   .databtn{display:flex;gap:8px;margin-top:6px}
-  .databtn button{flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--ink);font-size:12px;font-weight:600;padding:10px;border-radius:10px}
+  .databtn button,.databtn label{flex:1;background:var(--bg2);border:1px solid var(--line);color:var(--ink);font-size:12px;font-weight:600;padding:10px;border-radius:10px;cursor:pointer;text-align:center}
   .databtn button:hover{border-color:var(--line2)}
   .reset{width:100%;margin-top:16px;background:none;border:1px solid #4a2b28;color:var(--red);font-size:12.5px;font-weight:600;padding:11px;border-radius:11px}.reset:hover{background:#241413}
   .warn{background:#241a12;border:1px solid #4a3f28;color:var(--amber);font-size:12px;border-radius:11px;padding:11px 13px;margin-top:12px;line-height:1.5}
@@ -250,7 +250,7 @@
     </details>
   </div>
 
-  <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+  <input type="file" id="importFile" accept="*/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;left:-9999px">
   <div class="foot">
     데이터는 이 기기 브라우저에 저장돼요. 다른 기기에서 쓰려면<br>
     설정 → "동기화 파일 저장"으로 JSON을 OneDrive에 저장한 뒤 "동기화 파일 불러오기" 하세요.<br>
@@ -457,7 +457,7 @@ function initStatic(){
     const c=e.target.closest("[data-conf]");if(c){confirmEvent(c.dataset.conf);return;}
     const d=e.target.closest("[data-wdel]");if(d){S.events=S.events.filter(x=>x.id!==d.dataset.wdel);persist();render();return;}
   };
-  document.getElementById("wishList").onchange=e=>{const dt=e.target.closest("[data-wdate]");if(dt){const ev=S.events.find(x=>x.id===dt.dataset.wdate);if(ev){ev.date=dt.value||null;persist();render();}}};
+  document.getElementById("wishList").onchange=e=>{const dt=e.target.closest("[data-wdate]");if(dt){const ev=S.events.find(x=>x.id===dt.dataset.wdate);if(ev){ev.date=dt.value||null;persist();renderHero();renderCheck();renderLedger();dt.closest(".wishline").querySelector(".wn small")&&(dt.closest(".wishline").querySelector(".wn small").textContent=methodK(ev.method)+" · "+dt.value+" 예정");}}};
   document.getElementById("ledger").onclick=e=>{
     const l=e.target.closest("[data-ldel]");if(l){S.ledger=S.ledger.filter(x=>x.id!==l.dataset.ldel);persist();render();return;}
     const b=e.target.closest("[data-id]");if(b&&b.dataset.kind){const{id,kind}=b.dataset;
@@ -573,10 +573,9 @@ function renderWish(){
     return `<div class="wishline">
       <div class="wn">${esc(e.label)} <br>${meta}${impact}</div>
       <div class="wa" style="color:${e.dir==='in'?'var(--jade)':'var(--ink)'}">${sign}${yen(e.amount)}</div>
-      ${e.date?"":`<input type="date" class="wdate" data-wdate="${e.id}" value="">`}
       <button class="wbtn ok" data-conf="${e.id}">확정</button>
       <button class="wbtn x" data-wdel="${e.id}" aria-label="삭제">×</button>
-    </div>`;
+    </div>${e.date?"":`<div style="padding:0 0 10px 2px"><input type="date" class="wdate" data-wdate="${e.id}" value="" style="width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:9px 11px;font-size:12.5px;color-scheme:dark;min-height:40px"></div>`}`;
   }).join("");
 }
 function renderDash(){
@@ -634,7 +633,7 @@ function renderLedger(){
       const outSum=monEv.filter(p=>p.delta<0).reduce((a,p)=>a-p.delta,0);
       yIn+=inSum;yOut+=outSum;
       const st=v<curYm?["지난 기록","var(--muted2)"]:v===curYm?["이번 달","var(--jade)"]:["예정","var(--muted)"];
-      const bigEv=monEv.filter(p=>(p.src===null||p.src==="ledger"||p.src==="event")&&p.label!=="인턴 급여").sort((a,b)=>b.dt-a.dt);
+      const bigEv=monEv.filter(p=>(p.src===null||p.src==="ledger"||p.src==="event")).sort((a,b)=>b.dt-a.dt);
       const bigHtml=bigEv.map(p=>{const x=p.src==="ledger"?` <button class="x" data-ldel="${p.id}" aria-label="삭제">×</button>`:``;return `<div class="frow ${p.delta>0?'plus':''}"><span class="l">${esc(p.label)} <span style="color:var(--muted2)">${p.dt.getMonth()+1}/${p.dt.getDate()}</span></span><span class="a num">${p.delta>0?'+':'−'}${yen(Math.abs(p.delta))}${x}</span></div>`;}).join("");
       const expsM=S.expenses.filter(e=>{const[ey,em]=ymOf(e.date);return ey===+y&&em===m;});
       const wksM=S.workLogs.filter(w=>{const[ey,em]=ymOf(w.date);return ey===+y&&em===m;});
@@ -644,14 +643,16 @@ function renderLedger(){
       const catHtml=catOrder.filter(k=>cat[k]).map(k=>`${k} <b class="num" style="color:${k==="여유"?"var(--gold)":"var(--ink)"}">${yen(cat[k])}</b>`).join('<span style="color:var(--muted2)"> · </span>');
       const recs=[];
       expsM.forEach(e=>recs.push({date:e.date,sort:e.id,label:(e.tag==="여유"?"★ ":"")+(e.category||e.tag)+(e.memo?" · "+e.memo:""),method:e.method||"card",amt:-(+e.amount),del:`data-id="${e.id}" data-kind="exp"`}));
-      wksM.forEach(w=>recs.push({date:w.date,sort:w.id,label:`◷ 근무 ${w.hours}h`,method:"",amt:+workPay(w),del:`data-id="${w.id}" data-kind="work"`}));
+      wksM.forEach(w=>recs.push({date:w.date,sort:w.id,label:`◷ 근무 ${w.hours}h`,method:"",amt:+workPay(w),info:true,del:`data-id="${w.id}" data-kind="work"`}));
       incM.forEach(e=>recs.push({date:e.date,sort:e.id,label:"기타수입"+(e.memo?" · "+e.memo:""),method:"",amt:+(+e.amount),del:`data-id="${e.id}" data-kind="inc"`}));
       const byDate={};recs.forEach(r=>{(byDate[r.date]=byDate[r.date]||[]).push(r);});
       const dates=Object.keys(byDate).sort().reverse();
       const dayHtml=dates.map(d=>{
         const items=byDate[d].sort((a,b)=>a.sort<b.sort?1:-1);
-        const net=items.reduce((a,r)=>a+r.amt,0);
-        const inner=items.map(r=>`<div class="frow di"><span class="l">${esc(r.label)}${r.method?`<span class="mm">${methodK(r.method)}</span>`:""}</span><span class="a num" ${r.amt>0?'style="color:var(--jade)"':""}>${r.amt>0?"+":"−"}${yen(Math.abs(r.amt))} <button class="x" ${r.del} aria-label="삭제">×</button></span></div>`).join("");
+        const net=items.reduce((a,r)=>a+(r.info?0:r.amt),0);
+        const inner=items.map(r=>r.info
+          ?`<div class="frow di"><span class="l" style="color:var(--muted2)">${esc(r.label)} <span style="font-size:10px">급여는 입금일에 반영</span></span><span class="a num" style="color:var(--muted2)">(+${yen(Math.abs(r.amt))}) <button class="x" ${r.del} aria-label="삭제">×</button></span></div>`
+          :`<div class="frow di"><span class="l">${esc(r.label)}${r.method?`<span class="mm">${methodK(r.method)}</span>`:""}</span><span class="a num" ${r.amt>0?'style="color:var(--jade)"':""}>${r.amt>0?"+":"−"}${yen(Math.abs(r.amt))} <button class="x" ${r.del} aria-label="삭제">×</button></span></div>`).join("");
         return `<details class="dled"><summary><span class="dd">${d.slice(5)} <span style="color:var(--muted2)">(${items.length}건)</span></span><span class="dv" style="color:${net>=0?"var(--jade)":"var(--ink)"}">${net>=0?"+":"−"}${yen(Math.abs(net))}</span></summary>${inner}</details>`;
       }).join("")||`<div style="font-size:11.5px;color:var(--muted2);padding:6px 0">찍은 기록 없음</div>`;
       monthsHtml+=`<details class="mled" ${v===curYm?'open':''}><summary><span class="mo">${m}월<span class="mtag" style="color:${st[1]}">${st[0]}</span></span><span class="cl num" style="color:${colorZone(closing)}">${yen(closing)}</span></summary>`+
@@ -821,7 +822,7 @@ function renderSettings(){
     <div>${evHtml}</div>
     <button class="addbtn" id="addEv">+ 예정 항목 추가</button>
     <div class="sgrp">데이터</div>
-    <div class="databtn"><button id="csvBtn">CSV 내보내기</button><button id="jsonBtn">동기화 파일 저장</button><button id="jsonArchiveBtn">날짜별 저장</button><button id="impBtn">동기화 파일 불러오기</button></div>
+    <div class="databtn"><button id="csvBtn">CSV 내보내기</button><button id="jsonBtn">동기화 파일 저장</button><button id="jsonArchiveBtn">날짜별 저장</button><label id="impBtn" for="importFile" style="display:flex;align-items:center;justify-content:center">동기화 파일 불러오기</label></div>
     <button class="reset" id="resetBtn">모든 데이터 초기화</button>`;
 
   const body=document.getElementById("settingsBody");
@@ -842,7 +843,7 @@ function renderSettings(){
       if(f==="amount")obj.amount=+e.target.value.replace(/[^\d]/g,"")||0;
       else if(f==="date")obj.date=e.target.value||null;
       else obj[f]=e.target.value;
-      persist();renderHero();renderWish();renderLedger();if(f==="date")renderSettings();return;}
+      persist();renderHero();renderWish();renderLedger();return;}
   };
   body.onclick=e=>{
     const rdel=e.target.closest("[data-rdel]");if(rdel){S.recurring=S.recurring.filter(x=>x.id!==rdel.dataset.rdel);persist();renderSettings();render();return;}
@@ -852,7 +853,6 @@ function renderSettings(){
     if(e.target.id==="csvBtn"){exportCSV();return;}
     if(e.target.id==="jsonBtn"){exportJSON();return;}
     if(e.target.id==="jsonArchiveBtn"){exportJSONArchive();return;}
-    if(e.target.id==="impBtn"){document.getElementById("importFile").click();return;}
     if(e.target.id==="resetBtn"){if(confirm("모든 기록과 설정을 지울까요? 되돌릴 수 없어요.")){S=defaults();persist();document.getElementById("edate").value=todayStr();renderSettings();render();}}
   };
 }
