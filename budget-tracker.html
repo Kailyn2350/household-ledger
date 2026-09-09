@@ -144,6 +144,13 @@
   .fix{margin-top:12px;padding-top:11px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink);line-height:1.55}
   .fix b{color:var(--paper)}
   .fixnote{font-size:11px;color:var(--muted2);margin-top:6px}
+.cattot{font-size:12px;color:var(--muted);padding:8px 0 4px;line-height:1.7}
+  .dled{border-top:1px solid var(--line)}
+  .dled>summary{list-style:none;display:flex;justify-content:space-between;padding:9px 0;cursor:pointer;font-size:12.5px}
+  .dled>summary::-webkit-details-marker{display:none}
+  .dled .dd{color:var(--ink)}
+  .dled .dv{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .frow.di{padding-left:12px}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -172,18 +179,6 @@
       </div>
       <button class="save-btn sec2" id="wishAdd">위시에 추가</button>
       <div id="wishList"></div>
-    </div>
-  </div>
-
-  <div class="sec">
-    <div class="sec-h"><h2>통장 잔액 흐름</h2><span class="hint" id="chartHint"></span></div>
-    <div class="chart-card">
-      <svg id="chart" viewBox="0 0 440 190" preserveAspectRatio="xMidYMid meet" role="img" aria-label="예상 통장 잔액 추이"></svg>
-      <div class="chart-legend">
-        <span><i class="lgd" style="background:var(--jade)"></i>예상 잔액</span>
-        <span><i class="lgd" style="background:var(--red)"></i>0엔 선</span>
-        <span><i class="lgd" style="background:var(--gold)"></i>가장 빠듯한 날</span>
-      </div>
     </div>
   </div>
 
@@ -524,7 +519,7 @@ function addEntry(){
   document.getElementById("ememo").value="";persist();render();
 }
 
-function render(){renderHero();renderCheck();renderWish();renderChart();renderDash();renderFood();renderLogger();renderCats();renderLedger();renderSettings();}
+function render(){renderHero();renderCheck();renderWish();renderDash();renderFood();renderLogger();renderCats();renderLedger();renderSettings();}
 
 let LAST=null;
 function renderHero(){
@@ -584,29 +579,6 @@ function renderWish(){
     </div>`;
   }).join("");
 }
-function renderChart(){
-  const s=LAST||buildSeries();const svg=document.getElementById("chart");
-  const dpts=[{dt:s.today,bal:s.todayBal}].concat(s.pts.filter(p=>p.dt>s.today).map(p=>({dt:p.dt,bal:p.bal})));
-  const W=440,Hh=190,pl=6,pr=10,pt=14,ih=Hh-pt-22,iw=W-pl-pr;
-  const t0=dpts[0].dt.getTime(),t1=Math.max(s.end.getTime(),dpts[dpts.length-1].dt.getTime()),tspan=Math.max(1,t1-t0);
-  let bmin=Math.min(0,...dpts.map(p=>p.bal)),bmax=Math.max(...dpts.map(p=>p.bal),0);
-  if(bmax===bmin)bmax=bmin+1;const bpad=(bmax-bmin)*0.12;bmin-=bpad;bmax+=bpad;
-  const X=t=>pl+((t-t0)/tspan)*iw,Y=b=>pt+(1-(b-bmin)/(bmax-bmin))*ih;
-  let d=`M ${X(dpts[0].dt).toFixed(1)} ${Y(dpts[0].bal).toFixed(1)}`;
-  for(let i=1;i<dpts.length;i++){d+=` L ${X(dpts[i].dt).toFixed(1)} ${Y(dpts[i-1].bal).toFixed(1)} L ${X(dpts[i].dt).toFixed(1)} ${Y(dpts[i].bal).toFixed(1)}`;}
-  const lastX=X(t1);d+=` L ${lastX.toFixed(1)} ${Y(dpts[dpts.length-1].bal).toFixed(1)}`;
-  const area=d+` L ${lastX.toFixed(1)} ${Y(bmin).toFixed(1)} L ${X(dpts[0].dt).toFixed(1)} ${Y(bmin).toFixed(1)} Z`;
-  const zeroY=Y(0),mxc=X(s.min.dt.getTime()),my=Y(s.seriesMin);
-  let grid="";const gd=new Date(dpts[0].dt);gd.setDate(1);gd.setMonth(gd.getMonth()+1);
-  while(gd.getTime()<=t1){const gx=X(gd.getTime());grid+=`<line x1="${gx.toFixed(1)}" y1="${pt}" x2="${gx.toFixed(1)}" y2="${pt+ih}" stroke="#294046" stroke-width="1" stroke-dasharray="2 3"/><text x="${gx.toFixed(1)}" y="${Hh-6}" fill="#5E7573" font-size="9" text-anchor="middle" font-family="monospace">${gd.getMonth()+1}월</text>`;gd.setMonth(gd.getMonth()+1);}
-  svg.innerHTML=
-    `<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#46D2AE" stop-opacity="0.22"/><stop offset="1" stop-color="#46D2AE" stop-opacity="0"/></linearGradient></defs>`+grid+
-    (zeroY>=pt&&zeroY<=pt+ih?`<line x1="${pl}" y1="${zeroY.toFixed(1)}" x2="${lastX.toFixed(1)}" y2="${zeroY.toFixed(1)}" stroke="#E8695F" stroke-width="1" stroke-dasharray="4 3" opacity="0.8"/>`:``)+
-    `<path d="${area}" fill="url(#ag)"/><path d="${d}" fill="none" stroke="#46D2AE" stroke-width="2" stroke-linejoin="round"/>`+
-    `<circle cx="${mxc.toFixed(1)}" cy="${my.toFixed(1)}" r="4" fill="#D9B36B" stroke="#0E1719" stroke-width="2"/>`+
-    `<text x="${Math.min(Math.max(mxc,30),W-30).toFixed(1)}" y="${(my<pt+18?my+16:my-9).toFixed(1)}" fill="#D9B36B" font-size="10" font-weight="600" text-anchor="middle" font-family="monospace">${yen(s.seriesMin)}</text>`;
-  document.getElementById("chartHint").textContent=`오늘 ~ ${fmtShort(s.horizon)}`;
-}
 function renderDash(){
   const n=now();const df=+S.dailyFood||0;
   const foodMonth=foodSum(n.y,n.m),foodToday=foodSumDay(todayStr()),elapsed=n.d;
@@ -650,42 +622,49 @@ function renderLedger(){
   document.getElementById("ledHint").textContent=`${fmtShort(s.horizon)}까지`;
   const years={};
   for(let v=startYm;v<=endYm;v++){const{y}=fromYm(v);(years[y]=years[y]||[]).push(v);}
+  const yrs=Object.keys(years).sort().reverse();
   let html="";
-  for(const y of Object.keys(years).sort()){
+  for(const y of yrs){
     let yIn=0,yOut=0,monthsHtml="";
-    for(const v of years[y]){
+    for(const v of years[y].slice().reverse()){
       const{m}=fromYm(v),mStart=new Date(+y,m-1,1),mEnd=new Date(+y,m,0,23,59,59);
       const monEv=s.pts.filter(p=>p.src!=="anchor"&&p.dt>=mStart&&p.dt<=mEnd);
-      let opening=+S.startBalance;s.pts.forEach(p=>{if(p.dt<mStart)opening=p.bal;});
-      let closing=opening;s.pts.forEach(p=>{if(p.dt<=mEnd)closing=p.bal;});
+      let closing=+S.startBalance;s.pts.forEach(p=>{if(p.dt<=mEnd)closing=p.bal;});
       const inSum=monEv.filter(p=>p.delta>0).reduce((a,p)=>a+p.delta,0);
       const outSum=monEv.filter(p=>p.delta<0).reduce((a,p)=>a-p.delta,0);
       yIn+=inSum;yOut+=outSum;
       const st=v<curYm?["지난 기록","var(--muted2)"]:v===curYm?["이번 달","var(--jade)"]:["예정","var(--muted)"];
-      const cashLines=monEv.map(p=>{
-        const x=p.src==="ledger"?` <button class="x" data-ldel="${p.id}" aria-label="삭제">×</button>`
-               :p.src==="income"?` <button class="x" data-id="${p.id}" data-kind="inc" aria-label="삭제">×</button>`
-               :p.src==="exp"?` <button class="x" data-id="${p.id}" data-kind="exp" aria-label="삭제">×</button>`:``;
-        return `<div class="frow ${p.delta>0?'plus':''}"><span class="l">${esc(p.label)}</span><span class="a num">${p.delta>0?'+':'−'}${yen(Math.abs(p.delta))}${x}</span></div>`;
-      }).join("")||`<div class="frow"><span class="l" style="color:var(--muted2)">현금 이동 없음</span><span></span></div>`;
-      const exps=S.expenses.filter(e=>{const[ey,em]=ymOf(e.date);return ey===+y&&em===m;});
-      const wks=S.workLogs.filter(w=>{const[ey,em]=ymOf(w.date);return ey===+y&&em===m;});
-      let detail="";
-      if(exps.length||wks.length){
-        detail=`<div class="ledsub">내가 찍은 기록</div>`+
-          exps.map(e=>`<div class="frow"><span class="l">${e.tag==='여유'?'★ ':''}${esc(e.category||e.tag)}<span class="mm">${methodK(e.method||'card')}</span>${e.memo?` · ${esc(e.memo)}`:''} <span style="color:var(--muted2)">${e.date.slice(5)}</span></span><span class="a num">−${yen(e.amount)} <button class="x" data-id="${e.id}" data-kind="exp" aria-label="삭제">×</button></span></div>`).join("")+
-          wks.map(w=>`<div class="frow plus"><span class="l">◷ 근무 ${w.hours}h <span style="color:var(--muted2)">${w.date.slice(5)}</span></span><span class="a num">+${yen(workPay(w))} <button class="x" data-id="${w.id}" data-kind="work" aria-label="삭제">×</button></span></div>`).join("");
-      }
-      const net=inSum-outSum;
-      monthsHtml+=`<details class="mled" ${v===curYm?'open':''}><summary><span class="mo">${m}월<span class="mtag" style="color:${st[1]}">${st[0]}</span></span><span class="cl num" style="color:${colorZone(closing)}">${yen(closing)}</span></summary>
-        <div class="mbody"><div class="frow"><span class="l" style="color:var(--muted2)">월초</span><span class="a num" style="color:var(--muted2)">${yen(opening)}</span></div>${cashLines}${detail}
-        <div class="frow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span class="l" style="color:var(--ink)">순변동</span><span class="a num" style="color:${net>=0?'var(--jade)':'var(--red)'}">${net>=0?'+':'−'}${yen(Math.abs(net))}</span></div></div></details>`;
+      const bigEv=monEv.filter(p=>(p.src===null||p.src==="ledger"||p.src==="event")&&p.label!=="인턴 급여").sort((a,b)=>b.dt-a.dt);
+      const bigHtml=bigEv.map(p=>{const x=p.src==="ledger"?` <button class="x" data-ldel="${p.id}" aria-label="삭제">×</button>`:``;return `<div class="frow ${p.delta>0?'plus':''}"><span class="l">${esc(p.label)} <span style="color:var(--muted2)">${p.dt.getMonth()+1}/${p.dt.getDate()}</span></span><span class="a num">${p.delta>0?'+':'−'}${yen(Math.abs(p.delta))}${x}</span></div>`;}).join("");
+      const expsM=S.expenses.filter(e=>{const[ey,em]=ymOf(e.date);return ey===+y&&em===m;});
+      const wksM=S.workLogs.filter(w=>{const[ey,em]=ymOf(w.date);return ey===+y&&em===m;});
+      const incM=S.incomes.filter(e=>{const[ey,em]=ymOf(e.date);return ey===+y&&em===m;});
+      const cat={};expsM.forEach(e=>{const k=e.tag==="여유"?"여유":(e.category||"기타");cat[k]=(cat[k]||0)+(+e.amount);});
+      const catOrder=["식비","여유","교통","마트/생활","교제/외식","기타"];
+      const catHtml=catOrder.filter(k=>cat[k]).map(k=>`${k} <b class="num" style="color:${k==="여유"?"var(--gold)":"var(--ink)"}">${yen(cat[k])}</b>`).join('<span style="color:var(--muted2)"> · </span>');
+      const recs=[];
+      expsM.forEach(e=>recs.push({date:e.date,sort:e.id,label:(e.tag==="여유"?"★ ":"")+(e.category||e.tag)+(e.memo?" · "+e.memo:""),method:e.method||"card",amt:-(+e.amount),del:`data-id="${e.id}" data-kind="exp"`}));
+      wksM.forEach(w=>recs.push({date:w.date,sort:w.id,label:`◷ 근무 ${w.hours}h`,method:"",amt:+workPay(w),del:`data-id="${w.id}" data-kind="work"`}));
+      incM.forEach(e=>recs.push({date:e.date,sort:e.id,label:"기타수입"+(e.memo?" · "+e.memo:""),method:"",amt:+(+e.amount),del:`data-id="${e.id}" data-kind="inc"`}));
+      const byDate={};recs.forEach(r=>{(byDate[r.date]=byDate[r.date]||[]).push(r);});
+      const dates=Object.keys(byDate).sort().reverse();
+      const dayHtml=dates.map(d=>{
+        const items=byDate[d].sort((a,b)=>a.sort<b.sort?1:-1);
+        const net=items.reduce((a,r)=>a+r.amt,0);
+        const inner=items.map(r=>`<div class="frow di"><span class="l">${esc(r.label)}${r.method?`<span class="mm">${methodK(r.method)}</span>`:""}</span><span class="a num" ${r.amt>0?'style="color:var(--jade)"':""}>${r.amt>0?"+":"−"}${yen(Math.abs(r.amt))} <button class="x" ${r.del} aria-label="삭제">×</button></span></div>`).join("");
+        return `<details class="dled"><summary><span class="dd">${d.slice(5)} <span style="color:var(--muted2)">(${items.length}건)</span></span><span class="dv" style="color:${net>=0?"var(--jade)":"var(--ink)"}">${net>=0?"+":"−"}${yen(Math.abs(net))}</span></summary>${inner}</details>`;
+      }).join("")||`<div style="font-size:11.5px;color:var(--muted2);padding:6px 0">찍은 기록 없음</div>`;
+      monthsHtml+=`<details class="mled" ${v===curYm?'open':''}><summary><span class="mo">${m}월<span class="mtag" style="color:${st[1]}">${st[0]}</span></span><span class="cl num" style="color:${colorZone(closing)}">${yen(closing)}</span></summary>`+
+        `<div class="mbody">`+
+          (catHtml?`<div class="cattot">${catHtml}</div>`:``)+
+          (bigHtml?`<div class="ledsub">큰 흐름</div>${bigHtml}`:``)+
+          `<div class="ledsub">날짜별 내역</div>${dayHtml}`+
+        `</div></details>`;
     }
     html+=`<details class="yr" ${(+y===n.y)?'open':''}><summary><span class="yl">${y}년</span><span class="yt">수입 ${yen(yIn)} · 지출 ${yen(yOut)} · 순 ${(yIn-yOut)>=0?'+':'−'}${yen(Math.abs(yIn-yOut))}</span></summary><div>${monthsHtml}</div></details>`;
   }
   document.getElementById("ledger").innerHTML=html;
 }
-
 function exportCSV(){
   const q=s=>`"${String(s==null?'':s).replace(/"/g,'""')}"`;
   const rows=[["날짜","종류","항목","분류","수단","금액","메모","상태"]];
@@ -851,19 +830,19 @@ function renderSettings(){
     if(g){const k=g.dataset.k;
       if(k==="startDate")S.startDate=g.value||todayStr();
       else S[k]=+g.value.replace(/[^\d]/g,"")||0;
-      persist();renderHero();renderCheck();renderWish();renderChart();renderDash();renderLedger();if(k==="wage"||k==="transportDefault")wPrevUpdate();return;}
+      persist();renderHero();renderCheck();renderWish();renderDash();renderLedger();if(k==="wage"||k==="transportDefault")wPrevUpdate();return;}
     const rec=e.target.closest(".ev[data-rid]");
     if(rec){const it=S.recurring.find(x=>x.id===rec.dataset.rid);const f=e.target.dataset.rf;
       if(f==="amount"||f==="day")it[f]=+e.target.value.replace(/[^\d]/g,"")||0;
       else if(f==="every"){it.every=+e.target.value;if(it.every!==1&&!it.anchor)it.anchor=curMonthStr();}
       else it[f]=e.target.value;
-      persist();renderHero();renderWish();renderChart();renderLedger();if(f==="every")renderSettings();return;}
+      persist();renderHero();renderWish();renderLedger();if(f==="every")renderSettings();return;}
     const evb=e.target.closest(".ev[data-id]");
     if(evb){const obj=S.events.find(x=>x.id===evb.dataset.id);const f=e.target.dataset.f;
       if(f==="amount")obj.amount=+e.target.value.replace(/[^\d]/g,"")||0;
       else if(f==="date")obj.date=e.target.value||null;
       else obj[f]=e.target.value;
-      persist();renderHero();renderWish();renderChart();renderLedger();if(f==="date")renderSettings();return;}
+      persist();renderHero();renderWish();renderLedger();if(f==="date")renderSettings();return;}
   };
   body.onclick=e=>{
     const rdel=e.target.closest("[data-rdel]");if(rdel){S.recurring=S.recurring.filter(x=>x.id!==rdel.dataset.rdel);persist();renderSettings();render();return;}
