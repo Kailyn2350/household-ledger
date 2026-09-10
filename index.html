@@ -183,7 +183,7 @@
   </div>
 
   <div class="sec">
-    <div class="sec-h"><h2>식비 현황</h2><span class="hint" id="monHint"></span></div>
+    <div class="sec-h"><h2>현황 요약</h2><span class="hint" id="monHint"></span></div>
     <div class="dgrid">
       <div class="dcard">
         <div class="k">오늘 식비</div><div class="v num" id="lifeV"></div>
@@ -193,6 +193,12 @@
         <div class="k">이번 달 식비 (롤오버)</div><div class="v num" id="freeSpentV"></div>
         <div class="note" id="freeSpentNote"></div>
       </div>
+    </div>
+    <!-- 👇 새로 추가되는 순수 카드 대금 카드 👇 -->
+    <div class="dcard" style="margin-top:10px">
+      <div class="k">이번 달 순수 카드 사용액</div>
+      <div class="v num" id="cardOutV"></div>
+      <div class="note">미래 예상(식비 등)을 제외하고, <b>현재까지 실제로 기록된</b> 카드 누적액입니다.</div>
     </div>
   </div>
 
@@ -250,7 +256,6 @@
     </details>
   </div>
 
-  <input type="file" id="importFile" accept="*/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;left:-9999px">
   <div class="foot">
     데이터는 이 기기 브라우저에 저장돼요. 다른 기기에서 쓰려면<br>
     설정 → "동기화 파일 저장"으로 JSON을 OneDrive에 저장한 뒤 "동기화 파일 불러오기" 하세요.<br>
@@ -348,6 +353,7 @@ function cardOut(y,m){
 }
 function foodSum(y,m){let s=0;for(const e of S.expenses){if(e.category!=="식비")continue;const[ey,em]=ymOf(e.date);if(ey===y&&em===m)s+=+e.amount;}return s;}
 function foodSumDay(ds){let s=0;for(const e of S.expenses){if(e.category==="식비"&&e.date===ds)s+=+e.amount;}return s;}
+function foodRollover(){const n=now();const df=+S.dailyFood||0;return n.d*df-foodSum(n.y,n.m);} // 이번 달 오늘까지 아낀 식비(+)/초과(−)
 function cardBill(y,m){
   const st=monStatus(y,m);
   const df=+S.dailyFood||0,dim=daysInMonth(y,m);
@@ -398,8 +404,13 @@ function buildSeries(){
   for(const e of ev){bal+=e.delta;pts.push({dt:e.dt,bal,delta:e.delta,label:e.label,src:e.src,id:e.id});if(e.dt<=today)todayBal=bal;}
   let seriesMin=todayBal,minPt={dt:today,bal:todayBal,label:"현재"};
   for(const p of pts){if(p.dt>today&&p.bal<seriesMin){seriesMin=p.bal;minPt=p;}}
-  const futureMin=seriesMin; // 미정 위시는 여유자금을 깎지 않음 (확정해야 반영)
-  return{pts,todayBal,today,min:minPt,seriesMin,futureMin,pendingOut,pendingIn,end:INT_END,horizon:H};
+  // 카드로 지금 사면 이번 달 카드값에 얹혀 "다음 카드 결제일"에 빠짐 → 그날 이후 최저 잔액이 카드 한도
+  const ncm=fromYm(toYm(n.y,n.m)+1),nextCardDt=clampDay(ncm.y,ncm.m,S.cardPayDay);
+  let cardMin=Infinity,cardMinPt=minPt;
+  for(const p of pts){if(p.dt>=nextCardDt&&p.bal<cardMin){cardMin=p.bal;cardMinPt=p;}}
+  if(cardMin===Infinity)cardMin=seriesMin; // 지평 안에 결제일 이후 날이 없으면 현금 기준과 동일
+  const futureMin=seriesMin; // (하위 호환용) 현금 기준 여유자금
+  return{pts,todayBal,today,min:minPt,cardMinPt,seriesMin,cardMin,futureMin,nextCardDt,pendingOut,pendingIn,end:INT_END,horizon:H};
 }
 
 function yen(v){v=Math.round(v);return (v<0?"-¥":"¥")+Math.abs(v).toLocaleString("ko-KR");}
@@ -465,31 +476,57 @@ function initStatic(){
       else if(kind==="work")S.workLogs=S.workLogs.filter(x=>x.id!==id);
       else S.expenses=S.expenses.filter(x=>x.id!==id);persist();render();return;}
   };
-  document.getElementById("importFile").onchange=async e=>{
-    const f=e.target.files[0];
+  document.addEventListener("change",e=>{
+    if(!e.target||e.target.id!=="importFile")return;
+    const inp=e.target,f=inp.files&&inp.files[0];
     if(!f)return;
+    const clear=()=>{try{inp.value="";}catch(_){}};
+    const apply=text=>{try{const p=parseBackupText(text);S=merge(defaults(),p);realize();persist();document.getElementById("edate").value=todayStr();render();alert("동기화 파일을 불러왔어요.");}catch(err){alert("파일을 읽지 못했어요: "+err.message);}clear();};
     try{
-      const buf=await f.arrayBuffer();
-      const text=decodeBackupBuffer(buf);
-      const p=parseBackupText(text);
-      S=merge(defaults(),p);
-      realize();
-      persist();
-      document.getElementById("edate").value=todayStr();
-      render();
-      alert("동기화 파일을 불러왔어요.");
+      const r=new FileReader();
+      r.onload=()=>apply(String(r.result||"").replace(/^\uFEFF/,""));
+      r.onerror=()=>{alert("파일을 열지 못했어요.");clear();};
+      r.readAsText(f,"UTF-8");
     }catch(err){
-      alert("파일을 읽지 못했어요. UTF-8 JSON 파일인지 확인해 주세요: "+err.message);
-    }finally{
-      e.target.value="";
+      (f.arrayBuffer?f.arrayBuffer():Promise.reject(err)).then(buf=>apply(decodeBackupBuffer(buf))).catch(er=>{alert("파일을 열지 못했어요: "+er.message);clear();});
     }
-  };
+  });
 }
 function fmtNum(n){return n?(+n).toLocaleString("ko-KR"):"";}
 function parseAmt(){return +document.getElementById("amt").value.replace(/[^\d]/g,"")||0;}
-function confirmEvent(id){const i=S.events.findIndex(e=>e.id===id);if(i<0)return;const e=S.events[i];
-  S.ledger.push({id:e.id,date:e.date||todayStr(),label:e.label,dir:e.dir,amount:+e.amount||0,method:e.method||"card"});
-  S.events.splice(i,1);persist();render();}
+function confirmEvent(id){
+  const i = S.events.findIndex(e => e.id === id);
+  if(i < 0) return;
+  const e = S.events[i];
+  const dt = e.date || todayStr();
+  
+  // 위시리스트에서 추가한 항목(ID가 'w_'로 시작함)은 일반 '여유' 지출로 보냅니다.
+  if (e.id.startsWith("w_")) {
+    S.expenses.push({
+      id: e.id,
+      date: dt,
+      amount: +e.amount || 0,
+      tag: "여유",
+      category: "", // 여유 지출은 카테고리 없음
+      memo: e.label,
+      method: e.method || "card"
+    });
+  } else {
+    // 가을 학비 같은 굵직한 예정 이벤트(ev_)는 기존처럼 별도 장부로 보냅니다.
+    S.ledger.push({
+      id: e.id,
+      date: dt,
+      label: e.label,
+      dir: e.dir,
+      amount: +e.amount || 0,
+      method: e.method || "card"
+    });
+  }
+  
+  S.events.splice(i, 1);
+  persist();
+  render();
+}
 function wPrevUpdate(){
   if(S.ui.mode!=="work")return;
   const h=parseFloat(document.getElementById("wHours").value)||0;
@@ -525,10 +562,10 @@ let LAST=null;
 function renderHero(){
   const s=buildSeries();LAST=s;
   const bal=document.getElementById("balNum");bal.textContent=yen(s.todayBal);bal.style.color=s.todayBal<0?"var(--red)":"var(--paper)";
-  const free=s.futureMin-(+S.safetyBuffer);
+  const buf=+S.safetyBuffer,cashFree=s.seriesMin-buf,cardFree=s.cardMin-buf;
   document.getElementById("freeSub").innerHTML=
-    `지금 안전하게 쓸 수 있는 돈(여유자금) <b class="num" style="color:${colorZone(s.futureMin)}">${yen(free)}</b>`+
-    (free<0?` — 아래 부족분을 먼저 메워야 해요`:` — ${fmtShort(s.horizon)}까지 이만큼은 써도 안 터져요`);
+    `<div style="margin-top:2px">💳 카드로 <b class="num" style="color:${colorZone(s.cardMin)}">${yen(cardFree)}</b> 까지 · 💵 현금 <b class="num" style="color:${colorZone(s.seriesMin)}">${yen(cashFree)}</b> 까지</div>`+
+    `<div style="color:var(--muted2);font-size:11px;margin-top:4px">${fmtShort(s.horizon)}까지 어느 날도 통장 안 터지는 선. 식비 아끼면 올라가요.</div>`;
 }
 function renderCheck(){
   const s=LAST||buildSeries();const buf=+S.safetyBuffer;const el=document.getElementById("checkSec");
@@ -558,8 +595,8 @@ function renderCheck(){
 }
 function renderWish(){
   const s=LAST||buildSeries();
-  const freeNow=s.futureMin-(+S.safetyBuffer);
-  document.getElementById("wishHint").textContent=`여유자금 ${yen(freeNow)}`;
+  const buf=+S.safetyBuffer,cashFree=s.seriesMin-buf,cardFree=s.cardMin-buf;
+  document.getElementById("wishHint").textContent=`카드 ${yen(cardFree)} · 현금 ${yen(cashFree)}`;
   document.querySelectorAll("#wishMethod button").forEach(x=>x.classList.toggle("on",x.dataset.wm===S.ui.wm));
   const list=S.events.slice().sort((a,b)=>(a.date?1:0)-(b.date?1:0));
   const el=document.getElementById("wishList");
@@ -568,8 +605,8 @@ function renderWish(){
     const sign=e.dir==="in"?"+":"−";
     const meta=`<small>${methodK(e.method)}${e.date?` · ${e.date.slice(5)} 예정`:" · 미정"}</small>`;
     let impact="";
-    if(e.dir==="out"&&!e.date){const after=freeNow-(+e.amount||0);const ok=after>=0;
-      impact=`<div style="font-size:11px;margin-top:2px;color:${ok?'var(--muted)':'var(--red)'}">사면 여유 <b style="color:${ok?'var(--jade)':'var(--red)'}">${yen(after)}</b> · ${ok?'사도 됨':'무리'}</div>`;}
+    if(e.dir==="out"&&!e.date){const base=e.method==="cash"?cashFree:cardFree;const after=base-(+e.amount||0);const ok=after>=0;
+      impact=`<div style="font-size:11px;margin-top:2px;color:${ok?'var(--muted)':'var(--red)'}">${e.method==="cash"?"현금":"카드"}로 사면 여유 <b style="color:${ok?'var(--jade)':'var(--red)'}">${yen(after)}</b> · ${ok?'사도 됨':'무리'}</div>`;}
     return `<div class="wishline">
       <div class="wn">${esc(e.label)} <br>${meta}${impact}</div>
       <div class="wa" style="color:${e.dir==='in'?'var(--jade)':'var(--ink)'}">${sign}${yen(e.amount)}</div>
@@ -579,19 +616,83 @@ function renderWish(){
   }).join("");
 }
 function renderDash(){
+  // 1. 전체 여유자금 가져오기 (위시리스트, 미래 지출 모두 반영된 진짜 남은 돈)
+  const s = LAST || buildSeries();
+  const cardFree = s.cardMin - (+S.safetyBuffer); 
+
   const n=now();const df=+S.dailyFood||0;
-  const foodMonth=foodSum(n.y,n.m),foodToday=foodSumDay(todayStr()),elapsed=n.d;
-  const rolloverAll=elapsed*df-foodMonth;
-  const rolloverBefore=(elapsed-1)*df-(foodMonth-foodToday);
-  const availToday=df+rolloverBefore,todayRem=availToday-foodToday;
-  const freeSp=sumTag(n.y,n.m,"여유");
+  const foodMonth=foodSum(n.y,n.m), foodToday=foodSumDay(todayStr()), elapsed=n.d;
+  
+  // 2. 순수 식비 기록 (우측 카드용 - 건드리지 않음)
+  const rolloverAll = (elapsed * df) - foodMonth;
+  const rolloverBefore = ((elapsed - 1) * df) - (foodMonth - foodToday);
+  
+  // 👇 3. 규석님의 천재적인 로직 적용: "가용 이월금 한도 제한"
+  let usableRollover = rolloverBefore;
+  let capped = false;
+  // 식비를 아꼈는데(rolloverBefore > 0), 전체 여유자금이 그것보다 적게 남았다면?
+  if (rolloverBefore > 0 && cardFree < rolloverBefore) {
+    // 남은 전체 여유자금까지만 식비로 끌어다 쓸 수 있음! (마이너스면 0으로 처리)
+    usableRollover = Math.max(0, cardFree);
+    capped = true;
+  }
+  
+  const availToday = df + usableRollover;
+  const todayRem = availToday - foodToday;
+  
+  // UI 렌더링
   document.getElementById("monHint").textContent=`${n.m}월 · 하루 ${yen(df)}`;
-  const pctT=availToday>0?foodToday/availToday*100:0,overT=foodToday>availToday;
+  const pctT=availToday>0?foodToday/availToday*100:0, overT=foodToday>availToday;
+  
   document.getElementById("lifeV").innerHTML=`${yen(foodToday)} <small>/ ${yen(availToday)}</small>`;
-  const bar=document.getElementById("lifeBar");bar.style.width=Math.min(100,Math.max(0,pctT))+"%";bar.style.background=overT?"var(--red)":pctT>80?"var(--amber)":"var(--jade)";
-  document.getElementById("lifeNote").innerHTML=(rolloverBefore!==0?`기본 ${yen(df)} ${rolloverBefore>0?"+ 이월 "+yen(rolloverBefore):"− 초과 "+yen(-rolloverBefore)}<br>`:``)+(overT?`<span style="color:var(--red)">오늘 ${yen(-todayRem)} 초과</span>`:`오늘 <b style="color:var(--jade)">${yen(todayRem)}</b> 더 쓸 수 있어요`);
-  const fv=document.getElementById("freeSpentV");fv.innerHTML=`${yen(foodMonth)} <small>/ ${yen(elapsed*df)}</small>`;fv.style.color=rolloverAll>=0?"var(--jade)":"var(--red)";
+  
+  const bar=document.getElementById("lifeBar");
+  bar.style.width=Math.min(100,Math.max(0,pctT))+"%";
+  bar.style.background=overT?"var(--red)":pctT>80?"var(--amber)":"var(--jade)";
+  
+  // 오늘 식비 설명 문구 업데이트
+  let noteHtml = "";
+  if (rolloverBefore !== 0) {
+    if (capped) {
+      // 한도가 걸린 경우 명확하게 표시해줌
+      noteHtml = `기본 ${yen(df)} + 이월 ${yen(usableRollover)} <small style="color:var(--amber)">(여유자금 한도 적용됨)</small><br>`;
+    } else {
+      noteHtml = `기본 ${yen(df)} ${rolloverBefore>0?"+ 이월 "+yen(rolloverBefore):"− 초과 "+yen(-rolloverBefore)}<br>`;
+    }
+  }
+  noteHtml += (overT?`<span style="color:var(--red)">오늘 ${yen(-todayRem)} 초과</span>`:`오늘 <b style="color:var(--jade)">${yen(todayRem)}</b> 더 쓸 수 있어요`);
+  document.getElementById("lifeNote").innerHTML = noteHtml;
+  
+  // 우측 카드는 기존 로직 그대로 롤오버 현황 유지
+  const fv=document.getElementById("freeSpentV");
+  fv.innerHTML=`${yen(foodMonth)} <small>/ ${yen(elapsed*df)}</small>`;
+  fv.style.color=rolloverAll>=0?"var(--jade)":"var(--red)";
+  
+  const freeSp=sumTag(n.y,n.m,"여유");
   document.getElementById("freeSpentNote").innerHTML=`누적 ${rolloverAll>=0?"여유(아낀 돈)":"초과"} <b style="color:${rolloverAll>=0?"var(--jade)":"var(--red)"}">${yen(Math.abs(rolloverAll))}</b> · 여유지출 ${yen(freeSp)}`;
+  let actualCardOut = 0;
+  
+  // 1. 실제로 기록된 지출 내역 (식비, 생활비 등)
+  for (const e of S.expenses) {
+    const [ey, em] = ymOf(e.date);
+    if (ey === n.y && em === n.m && (e.method || "card") === "card") {
+      actualCardOut += +e.amount;
+    }
+  }
+  
+  // 2. 확정(완료) 처리된 내역
+  for (const e of S.ledger) {
+    if (e.date && e.dir === "out" && e.method === "card") {
+      const [ey, em] = ymOf(e.date);
+      if (ey === n.y && em === n.m) {
+        actualCardOut += +e.amount;
+      }
+    }
+  }
+  
+  if (document.getElementById("cardOutV")) {
+    document.getElementById("cardOutV").innerHTML = yen(actualCardOut);
+  }
 }
 function renderFood(){
   document.getElementById("foodHint").textContent=`하루 ${yen(+S.dailyFood||0)}`;
@@ -822,7 +923,7 @@ function renderSettings(){
     <div>${evHtml}</div>
     <button class="addbtn" id="addEv">+ 예정 항목 추가</button>
     <div class="sgrp">데이터</div>
-    <div class="databtn"><button id="csvBtn">CSV 내보내기</button><button id="jsonBtn">동기화 파일 저장</button><button id="jsonArchiveBtn">날짜별 저장</button><label id="impBtn" for="importFile" style="display:flex;align-items:center;justify-content:center">동기화 파일 불러오기</label></div>
+    <div class="databtn"><button id="csvBtn">CSV 내보내기</button><button id="jsonBtn">동기화 파일 저장</button><button id="jsonArchiveBtn">날짜별 저장</button><label id="impBtn" style="display:flex;align-items:center;justify-content:center">동기화 파일 불러오기<input type="file" id="importFile" accept="*/*" style="display:none"></label></div>
     <button class="reset" id="resetBtn">모든 데이터 초기화</button>`;
 
   const body=document.getElementById("settingsBody");
